@@ -2,7 +2,7 @@
 #include <pcap.h>
 #include <stdlib.h>
 #include <cstdint>
-#include <linux/ieee80211.h>
+//#include <linux/ieee80211.h>
 
 #pragma pack(push)
 #pragma pack(1)
@@ -123,7 +123,7 @@ int main(int argc, char* argv[])
 
 	printf("Starting monitoring\n");
 
-	err = pcap_loop(pcap_h, 1, packet_handler, nullptr);
+	err = pcap_loop(pcap_h, 20, packet_handler, nullptr);
 	if (-1 == err)
 	{
 		printf("pcap_loop error occurred: %s", pcap_geterr(pcap_h));
