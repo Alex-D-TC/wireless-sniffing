@@ -1,1 +1,1 @@
-g++ WifiAnalyzer.cpp -lpcap -o Analyzer.o
+g++ $1.cpp -lpcap -o $2.o
