@@ -4,6 +4,9 @@
 #include <cstdint>
 //#include <linux/ieee80211.h>
 
+#define ETH_ALEN 6
+#define WLAN_SA_QUERY_TR_ID_LEN 2
+
 #pragma pack(push)
 #pragma pack(1)
 struct ieee80211_hdr {
@@ -15,10 +18,111 @@ struct ieee80211_hdr {
 	uint16_t seq_ctrl;
 	uint8_t addr4[6];
 };
-#pragma pack(pop)
 
-#pragma pack(push)
-#pragma pack(1)
+struct ieee80211_mgmt {
+         uint16_t frame_control;
+         uint16_t duration;
+         uint8_t da[6];
+         uint8_t sa[6];
+         uint8_t bssid[6];
+         uint16_t seq_ctrl;
+         union {
+                 struct {
+                         uint16_t auth_alg;
+                         uint16_t auth_transaction;
+                         uint16_t status_code;
+                         /* possibly followed by Challenge text */
+                         uint8_t variable[0];
+                 } auth;
+                 struct {
+                         uint16_t reason_code;
+                 } deauth;
+                 struct {
+                         uint16_t capab_info;
+                         uint16_t listen_interval;
+                         /* followed by SSID and Supported rates */
+                         uint8_t variable[0];
+                 } assoc_req;
+                 struct {
+                         uint16_t capab_info;
+                         uint16_t status_code;
+                         uint16_t aid;
+                         /* followed by Supported rates */
+                         uint8_t variable[0];
+                 } assoc_resp, reassoc_resp;
+                 struct {
+                         uint16_t capab_info;
+                         uint16_t listen_interval;
+                         uint8_t current_ap[6];
+                         /* followed by SSID and Supported rates */
+                         uint8_t variable[0];
+                 } reassoc_req;
+                 struct {
+                         uint16_t reason_code;
+                 } disassoc;
+                 struct {
+                         uint8_t timestamp[8];
+                         uint16_t beacon_int;
+                         uint16_t capab_info;
+                         /* followed by some of SSID, Supported rates,
+                          * FH Params, DS Params, CF Params, IBSS Params, TIM */
+                         uint8_t variable[0];
+                 } beacon;
+                 struct {
+                         /* only variable items: SSID, Supported rates */
+                         uint8_t variable[0];
+                 } probe_req;
+                 struct {
+                         uint8_t timestamp[8];
+                         uint16_t beacon_int;
+                         uint16_t capab_info;
+                         /* followed by some of SSID, Supported rates,
+                          * FH Params, DS Params, CF Params, IBSS Params */
+                         uint8_t variable[0];
+                 } probe_resp;
+                 struct {
+                         uint8_t category;
+                         union {
+                                 struct {
+                                         uint8_t action_code;
+                                         uint8_t dialog_token;
+                                         uint8_t status_code;
+                                         uint8_t variable[0];
+                                 } wmm_action;
+                                 struct{
+                                         uint8_t action_code;
+                                         uint8_t element_id;
+                                         uint8_t length;
+                                         uint8_t switch_mode;
+                                         uint8_t new_chan;
+                                         uint8_t switch_count;
+                                 } chan_switch;
+                                 struct {
+                                         uint8_t action;
+                                         uint8_t sta_addr[ETH_ALEN];
+                                         uint8_t target_ap_addr[ETH_ALEN];
+                                         uint8_t variable[0]; /* FT Request */
+                                 } ft_action_req;
+                                 struct {
+                                         uint8_t action;
+                                         uint8_t sta_addr[ETH_ALEN];
+                                         uint8_t target_ap_addr[ETH_ALEN];
+                                         uint16_t status_code;
+                                         uint8_t variable[0]; /* FT Request */
+                                 } ft_action_resp;
+                                 struct {
+                                         uint8_t action;
+                                         uint8_t trans_id[WLAN_SA_QUERY_TR_ID_LEN];
+                                 } sa_query_req;
+                                 struct {
+                                         uint8_t action; /* */
+                                         uint8_t trans_id[WLAN_SA_QUERY_TR_ID_LEN];
+                                 } sa_query_resp;
+                         } u;
+                 } action;
+         } u;
+};
+
 struct ieee80211_radiotap_hdr {
 	uint8_t it_version;
 	uint8_t it_pad;
@@ -36,28 +140,35 @@ void dump_raw(const uint8_t *data, size_t bytes)
 	printf("\n");
 }
 
+uint16_t get_bit(uint16_t data, uint16_t idx)
+{
+	return (data >> (15-idx)) & 0x7FFF;
+}
+
 void packet_handler(u_char* user, const pcap_pkthdr* header, const u_char* packet)
 {
 	struct  ieee80211_radiotap_hdr* radiotap;
-	struct  ieee80211_hdr* mac_header_80211;
+	struct  ieee80211_hdr* mac_header;
+	struct  ieee80211_mgmt* mgmt_header;
 
 	/*
 	 * Radiotap header
 	 */
 	radiotap = (struct ieee80211_radiotap_hdr*) (packet);
-
+	mgmt_header = (struct ieee80211_mgmt*) (packet + radiotap->it_len);
 	dump_raw(packet, 16);
 
-	printf("%d\n", radiotap->it_version);
-	printf("%04X\n", radiotap->it_present);
+	printf("Vesrion %d\n", radiotap->it_version);
+	printf("Present %04X\n", radiotap->it_present);
 
-	/*
-	 * 802.11 management frame: http://lxr.free-electrons.com/source/include/linux/ieee80211.h
-	 */
-	 /*
-	 struct ieee80211_mgmt* mgmt_frame = (struct ieee80211_mgmt*) (packet + radiotap->it_len);
-	*/
+	//mac = mac_header->addr1;
+	//printf("Src Mac %02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+	auto da = mgmt_header->da;
+	printf("MAC %02x:%02x:%02x:%02x:%02x:%02x\n", da[0], da[1], da[2], da[3], da[4], da[5]);
 
+	if (mgmt_header->frame_control) {
+		printf("SSID: %s\n", mgmt_frame->u.beacon.variable);
+	}
 }
 
 int main(int argc, char* argv[])
@@ -123,7 +234,7 @@ int main(int argc, char* argv[])
 
 	printf("Starting monitoring\n");
 
-	err = pcap_loop(pcap_h, 20, packet_handler, nullptr);
+	err = pcap_loop(pcap_h, 0, packet_handler, nullptr);
 	if (-1 == err)
 	{
 		printf("pcap_loop error occurred: %s", pcap_geterr(pcap_h));

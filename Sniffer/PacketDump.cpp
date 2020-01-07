@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <arpa/inet.h>
 //#include <winsock.h>
+#include <string.h>
 #include <time.h>
 
 #include <string>
@@ -24,6 +25,7 @@
 #define MAC_ADDR2_IEEE(p) ((uint8_t*)p + 6)
 #define PKT_TYPE(p) (((uint8_t*)p)[12])
 #define IP_VERSION(p) ((uint8_t)(p[0] >> 4))
+#define IP_LEN(p) ((uint8_t)(&p[0] << 4))
 #define TCP_LEN(p) ((uint8_t)(p >> 4))
 
 void dump_raw(const uint8_t* pkt_data, size_t bytes_count) {
@@ -178,8 +180,6 @@ int main() {
 
     printf("\nlistening on %s...\n", devices->description);
 
-    printf("%-18s | %-10s\n", "Time", "Header Length");
-
     /* At this point, we don't need any more the device list. Free it */
     pcap_freealldevs(alldevs);
 
@@ -232,7 +232,7 @@ std::string ipHeaderToString(const uint8_t* pkt_data, uint8_t* protocol, size_t*
         );
 
         *protocol = ip->proto;
-        *ip_size = ip->tos;
+        *ip_size = IP_LEN(ip->ver_ihl);
     } 
     else if (IP_VERSION(pkt_data) == 6) {
         return "";
@@ -247,20 +247,51 @@ std::string udpHeaderToString(const uint8_t* pkt_data) {
 
     sprintf(formated, "Protocol UDP Source Port %d Dest Port %d\0", udp->sport, udp->dport);
 
-    return std::string{ formated } +"\n";
+    return std::string{ formated } + "\n";
 }
 
 std::string tcpHeaderToString(const uint8_t* pkt_data, size_t* len) {
     const tcp_header* tcp = (const tcp_header*)pkt_data;
-    char formated[1000];
-
-    sprintf(formated, "Protocol TCP Source Port %d Dest Port %d Seq %d Ack %d\0",
+    char formated[1000], http[1000];
+    std::string httpHDR;
+    sprintf(formated, "Protocol TCP Source Port %d Dest Port %d Seq %u Ack %u\0",
         tcp->src_port, tcp->dst_port, tcp->seq, tcp->ack);
 
-    *len = TCP_LEN(tcp->data_offset);
+    *len = TCP_LEN(tcp->data_offset) * 4;
+    if (tcp->dst_port == 80 || tcp->src_port ==  80) {
+        memcpy(http, pkt_data + *len, 32); formated[32] = '\0';
+        httpHDR = std::string{ "HTTP " } + http + "\n";
+    } 
 
-    return std::string{ formated } +"\n";
+    return std::string{ formated } + "\n" + httpHDR;
 }
+
+/*std::string httpHeaderToString(const uint8_t* pkt_data) {
+    const tcp_header* tcp = (const tcp_header*)pkt_data;
+    char formated[10000];
+
+    //dump_raw(pkt_data, 32);
+    if (isHTTP) {
+        memcpy(formated, pkt_data, 32); formated[32] = '\0';
+        return std::string{ formated } + "\n";
+    }
+
+    /*if (pkt_data[0] == 'H' && pkt_data[1] == 'T' &&
+        pkt_data[2] == 'T' && pkt_data[3] == 'P'
+    ) {
+        for (size_t i = 0; ; i++) {
+            if (pkt_data[i] == '\n' && pkt_data[i + 1] == '\n') {
+                memcpy(formated, pkt_data, i);
+                formated[i] = '\0';
+                return std::string{ formated };
+            }
+        }
+
+        return "http\n";
+    }
+
+    return "";
+}*/
 
 /* Callback function invoked by libpcap for every incoming packet */
 void packet_handler(uint8_t* param, const struct pcap_pkthdr* header, const uint8_t* pkt_data) {
@@ -283,7 +314,7 @@ void packet_handler(uint8_t* param, const struct pcap_pkthdr* header, const uint
 
     printf("%s", ipHeaderToString(data, &protocol, &ipHeaderSize).c_str());
 
-    data = data + sizeof(ip_header) + ipHeaderSize;
+    data = data + ipHeaderSize;
     if (data >= pkt_data + header->caplen) {
         return;
     }
@@ -293,5 +324,7 @@ void packet_handler(uint8_t* param, const struct pcap_pkthdr* header, const uint
     }
     else if (protocol == PROTOCOL_TCP) {
         printf("%s", tcpHeaderToString(data, &tcpHeaderSize).c_str());
+        data += tcpHeaderSize;
+        //printf("%s", httpHeaderToString(data).c_str());
     }
 }
