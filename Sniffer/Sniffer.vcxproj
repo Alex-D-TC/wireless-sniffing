@@ -167,10 +167,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Sniffer.cpp" />
+    <ClCompile Include="PacketDump.cpp" />
+    <ClCompile Include="WifiAnalyzer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ieee80211_mgmt.h" />
+    <ClInclude Include="ieee_80211.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
