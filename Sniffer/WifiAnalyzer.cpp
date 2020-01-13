@@ -18,46 +18,155 @@ void dump_raw(const uint8_t* data, uint8_t rows, uint8_t cols)
     }
 }
 
+void print_ssid(const ieee80211_ssid* ssid)
+{
+    if (ssid->length > 0) {
+        printf("SSID: ");
+        for (auto i = 0; i < ssid->length; ++i) {
+            printf("%c", ssid->ssid[i]);
+        }
+        printf("\n");
+    }
+}
+
+#define RATE(_r) (.5 * ((_r) & 0x7f))
+
+void print_rates(const ieee80211_rates* rates)
+{
+    if (rates->length > 0) {
+        printf("Rates: ");
+        for (auto i = 0; i < rates->length; ++i) {
+            printf("%2.1fMbit ", RATE(rates->rate[i]));
+        }
+        printf("\n");
+    }
+}
+
+void print_power_capability(const ieee80211_power_capability* power_capability)
+{
+	printf("Minimum power capability: %d\nMaximum power capability: %d\n", power_capability->min_power, power_capability->max_power);
+}
+
+void print_ds(const ieee80211_ds_channel* ds)
+{
+	printf("Channel: %d\n", ds->channel);
+}
+
+void print_wpa(const uint8_t* wpa)
+{
+	// Skip elem ID and length
+	wpa += 2;
+
+	// Print and skip WPA tag
+	printf("WPA Tag: %02X:%02X:%02X:%02X\n", wpa[0], wpa[1], wpa[2], wpa[3]);	
+	wpa += 4;
+
+	// Skip version
+	wpa += 2;
+
+	// Print and skip group cipher suite
+	printf("Group cipher suite OUI: %02X:%02X:%02X. Suite type: %d\n", wpa[0], wpa[1], wpa[2], wpa[3]);
+	wpa += 4;
+
+	/*
+	// Print the pairwise cipher suites
+	uint16_t suite_count = (static_cast<uint16_t>(wpa[0]) << 8) + wpa[1];
+	wpa += 2;
+
+	printf("Printing %d pairwise ciphers\n", suite_count);
+	for (; suite_count; --suite_count)
+	{
+		// Print and skip group cipher suite
+		printf("Pairwise cipher suite OUI: %02X:%02X:%02X. Suite type: %d\n", wpa[0], wpa[1], wpa[2], wpa[3]);
+		wpa += 4;
+	}
+	*/
+}
+
+void handle_beacon(uint32_t caplen, const ieee80211_mgmt::messages::beacon_msg* beacon)
+{
+	printf("Beacon\n");
+	printf("Capability: %s\n",
+		CAPABILITY_ESS(beacon->capab_info) ? "ESS" : "IBSS");
+	printf("Capability privacy: %s\n", CAPABILITY_PRIVACY(beacon->capab_info) ? "True" : "False");
+
+	// Move over the beacon message header
+	caplen -= 12;
+	bool done = false;
+	for (auto generic_info = reinterpret_cast<const uint8_t*>(&(beacon->variable)); caplen;)
+	{
+		switch (generic_info[0])
+		{
+		case E_SSID:
+			print_ssid(reinterpret_cast<const ieee80211_ssid*>(generic_info));
+			goto advance;
+		case E_DS:
+			print_ds(reinterpret_cast<const ieee80211_ds_channel*>(generic_info));
+			goto advance;
+		case E_WPA:
+			print_wpa(generic_info);
+			goto advance;
+			break;
+		case E_POWER_CAPABILITY:
+			print_power_capability(reinterpret_cast<const ieee80211_power_capability*>(generic_info));
+			goto advance;
+			break;
+		case E_RATES:
+			print_rates(reinterpret_cast<const ieee80211_rates*>(generic_info));
+			goto advance;
+		default:
+			advance:
+			// Jump over information element
+			// Overflow detection
+			if ((caplen - generic_info[1] - 2) > caplen)
+			{
+				caplen = 0;
+			}
+			else
+			{
+				caplen = caplen - generic_info[1] - 2;
+			}
+			generic_info = generic_info + generic_info[1] + 2;
+			break;
+		}
+	}
+	printf("\n");
+}
+
 void mgmt_packet_handler(u_char* user, const pcap_pkthdr* header, const u_char* packet)
 {
     const ieee80211_radiotap_hdr* radiotap = reinterpret_cast<const ieee80211_radiotap_hdr*>(packet);
     const ieee80211_mgmt* mgmt_header = reinterpret_cast<const ieee80211_mgmt*>(packet + radiotap->it_len);
 
-    printf("Packet without radiotap\n");
-    dump_raw(packet, 6, 16);
+    //printf("Packet without radiotap\n");
+    //dump_raw(packet, 6, 16);
 
-    printf("Packet without radiotap\n");
-    dump_raw(reinterpret_cast<const uint8_t*>(mgmt_header), 4, 16);
+    //printf("Packet without radiotap\n");
+    //dump_raw(reinterpret_cast<const uint8_t*>(mgmt_header), 4, 16);
 
-    printf("Total capture size: %d\n", header->caplen);
+    printf("\nTotal capture size: %d\n", header->caplen);
     printf("Radiotap Version %d\n", radiotap->it_version);
     printf("Radiotap Length: %d\n", radiotap->it_len);
     printf("Present %04X\n", radiotap->it_present);
 
-    auto da = mgmt_header->da;
-    printf("DA: %02x:%02x:%02x:%02x:%02x:%02x\n", da[0], da[1], da[2], da[3], da[4], da[5]);
+    auto da = mgmt_header->sa;
+    printf("Source Mac: %02x:%02x:%02x:%02x:%02x:%02x\n", da[0], da[1], da[2], da[3], da[4], da[5]);
+    
+    da = mgmt_header->da;
+    printf("Dest Mac: %02x:%02x:%02x:%02x:%02x:%02x\n", da[0], da[1], da[2], da[3], da[4], da[5]);
+    
+    da = mgmt_header->bssid;
+    printf("Access Point Mac: %02x:%02x:%02x:%02x:%02x:%02x\n", da[0], da[1], da[2], da[3], da[4], da[5]);
+    //printf("DA: %02x:%02x:%02x:%02x:%02x:%02x\n", da[0], da[1], da[2], da[3], da[4], da[5]);
 
-    const ieee80211_ssid* ssid = nullptr;
-
-    printf("Subtype: 0x%X\n", mgmt_header->frame_control.subtype);
-
-    switch (mgmt_header->frame_control.subtype)
+    printf("Subtype: 0x%X\n", FC_SUBTYPE(mgmt_header->frame_control));
+    switch(FC_SUBTYPE(mgmt_header->frame_control))
     {
-    case ieee80211_mgmt_subtype::BEACON:
-        printf("Beacon\n");
-        ssid = reinterpret_cast<const ieee80211_ssid*>(&(mgmt_header->u.beacon.variable));
-        if (ssid->length > 0)
-        {
-            printf("SSID: ");
-            for (auto i = 0; i < ssid->length; ++i)
-            {
-                printf("%c", ssid->ssid[i]);
-            }
-            printf("\n");
-        }
-        break;
+    case ST_BEACON:
+		handle_beacon(header->caplen - radiotap->it_len - 24, &(mgmt_header->u.beacon));
+		break;
     default:
-        printf("Unidentified subtype: 0X%X\n", mgmt_header->frame_control.subtype);
+        printf("Unidentified subtype: 0X%X\n", FC_SUBTYPE(mgmt_header->frame_control));
     }
 }
 
